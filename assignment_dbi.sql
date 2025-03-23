@@ -63,19 +63,19 @@ CREATE TABLE tblMatch (
     first_to INT NOT NULL,
     status NVARCHAR(50) NOT NULL CHECK (status IN ('Scheduled', 'Ongoing', 'Completed')),
     CONSTRAINT FK_Match_Tournament FOREIGN KEY (tournament_id) REFERENCES Tournament(id) ON DELETE CASCADE,
-    CONSTRAINT FK_Match_Round FOREIGN KEY (round_id) REFERENCES Round(id) ON DELETE CASCADE,
-    CONSTRAINT FK_Match_Player1 FOREIGN KEY (player1_id) REFERENCES Player(id) ON DELETE CASCADE,
-    CONSTRAINT FK_Match_Player2 FOREIGN KEY (player2_id) REFERENCES Player(id) ON DELETE CASCADE,
+    CONSTRAINT FK_Match_Round FOREIGN KEY (round_id) REFERENCES Round(id) ,
+    CONSTRAINT FK_Match_Player1 FOREIGN KEY (player1_id) REFERENCES Player(id) ,
+    CONSTRAINT FK_Match_Player2 FOREIGN KEY (player2_id) REFERENCES Player(id),
     CONSTRAINT FK_Match_Winner FOREIGN KEY (winner_id) REFERENCES Player(id) ON DELETE SET NULL
 );
 GO
 
 -- Bảng Rack (Tỷ số theo rack)
-CREATE TABLE Rack (
-    rack INT NOT NULL, 
+create TABLE Rack (
+	rackId INT primary key,
+    rack_num INT NOT NULL, 
     match_id INT NOT NULL,
     winner_id INT NULL,
-    PRIMARY KEY (rack, match_id),
     CONSTRAINT FK_Rack_Match FOREIGN KEY (match_id) REFERENCES tblMatch(id) ON DELETE CASCADE,
     CONSTRAINT FK_Rack_Winner FOREIGN KEY (winner_id) REFERENCES Player(id) ON DELETE SET NULL
 );
@@ -83,17 +83,16 @@ GO
 
 -- Bảng thống kê theo rack
 CREATE TABLE rack_statistic (
-    rack INT NOT NULL,
-    match_id INT NOT NULL,
+    rackId INT,
     player_id INT NOT NULL,
     break_and_run INT DEFAULT 0,
     break_num INT DEFAULT 0,
     balls_potted INT DEFAULT 0,
     missed_pots INT DEFAULT 0,
     fouls INT DEFAULT 0,
-    PRIMARY KEY (rack, match_id, player_id),
-    CONSTRAINT FK_Statistic_Match FOREIGN KEY (match_id) REFERENCES tblMatch(id) ON DELETE CASCADE,
-    CONSTRAINT FK_Statistic_Player FOREIGN KEY (player_id) REFERENCES Player(id) ON DELETE CASCADE
+    PRIMARY KEY (rackId , player_id),
+	CONSTRAINT FK_rackId FOREIGN KEY (rackId) REFERENCES Rack(rackId) ON DELETE CASCADE,
+    CONSTRAINT FK_Statistic_Player FOREIGN KEY (player_id) REFERENCES Player(id) ON DELETE CASCADE,
 );
 GO
 
