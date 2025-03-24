@@ -71,7 +71,7 @@ VALUES
     ('Joshua', 'Filler', 'The Killer', '1997-10-02', 1.78, 1, 4, 600000.000, 'Germany', 'Right'),
     ('Carlo', 'Biado', NULL, '1983-10-31', 1.72, 1, 3, 450000.000, 'Philippines', 'Right'),
     ('Ko', 'Ping Chung', NULL, '1995-09-07', 1.76, 1, 2, 400000.000, 'Taiwan', 'Right'),
-	('Dương', 'Quốc Hoàng', NULL, '1987-01-01', 1.75, 1, 1, 100000.000, 'Vietnam', 'Right'),
+	(N'Dương', N'Quốc Hoàng', NULL, '1987-01-01', 1.75, 1, 1, 100000.000, 'Vietnam', 'Right'),
     ('Francisco', 'Sanchez Ruiz', 'FSC', '1991-12-29', 1.78, 1, 5, 700000.000, 'Spain', 'Right');
 GO
 -- Bảng Round (Vòng đấu)
@@ -216,9 +216,18 @@ INSERT INTO Prize (tournament_id, position, amount)
 VALUES  
 (1, 'Champion', 600000.00),  -- Giải thưởng vô địch World Pool Championship  
 (1, 'Runner-up', 300000.00),  -- Á quân World Pool Championship  
+(1, 'Third place winner', 150000.00),  -- hạng 3 World Pool Championship 
 (2, 'Champion', 500000.00),  -- Giải thưởng vô địch US Open 9-Ball Championship  
 (3, 'Champion', 500000.00),  -- Giải thưởng vô địch World Snooker Championship  
 (3, 'Runner-up', 200000.00);  -- Á quân World Snooker Championship  
+GO
+CREATE TABLE Player_prize(
+	playerId INT FOREIGN KEY(playerId) REFERENCES Player(id) ,
+	prizeId INT FOREIGN KEY(prizeId) REFERENCES Prize(id)
+	constraint pk_plr primary key(playerId,prizeId)
+)
+GO
+INSERT INTO Player_prize VALUES(9,1),(6,2),(2,6),(5,6)
 GO
 
 -- Bảng Ranking (Xếp hạng)
@@ -245,3 +254,56 @@ VALUES
 (9, '9 Ball', 32000, 9),  -- Dương Quốc Hoàng - Cơ thủ Việt Nam  
 (10, '9 Ball', 30000, 10); -- Francisco Sanchez Ruiz - Đương kim số 1 thế giới 9 Ball  
 GO
+
+CREATE FUNCTION Player_schedule(
+@tournamentName nvarchar(50),
+@playerName nvarchar(50) )
+returns table
+as
+return(
+select 
+m.match_date as [Date],
+p1.first_name+p1.last_name as [Player1 name],
+p2.first_name+p2.last_name as [Player2 name],
+m.player1_score as [Player1 score],
+m.player2_score as [Player2 score],
+m.status as [Status]
+from 
+Tournament t
+inner join tblMatch m on m.tournament_id=t.id and t.name=@tournamentName
+inner join Player p1 on (p1.id=m.player1_id )
+inner join Player p2 on (p2.id=m.player2_id )
+where  p2.first_name+p2.last_name=@playerName or p1.first_name+p1.last_name=@playerName
+)
+--Lấy lịch thi đấu của một người chơi trong một giải đấu
+select * from dbo.Player_schedule('World Pool Championship',N'DươngQuốc Hoàng')
+
+
+CREATE FUNCTION total_player_price(
+@year int,
+@playerName nvarchar(50) )
+returns table
+as
+return(
+select 
+player.id as [Player ID],
+player.first_name+player.last_name as [Player name],
+SUM(p.amount) as [Amount]
+from 
+Tournament t
+inner join Prize p on p.tournament_id=t.id and YEAR(t.end_date)=@year
+inner join Player_prize pp  on pp.prizeId=p.id
+inner join Player player on player.id=pp.playerId
+where player.first_name+player.last_name=@playerName
+group by player.id ,player.first_name+player.last_name
+)
+--Thống kê tổng số tiền thưởng của mỗi người chơi trong một năm
+select * from dbo.total_player_price(2024,N'DươngQuốc Hoàng')
+
+
+
+
+
+
+
+
