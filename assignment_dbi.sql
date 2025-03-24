@@ -21,7 +21,6 @@ VALUES
 ('Mosconi Cup', 'London, England', '2024-12-06', '2024-12-09', 'Upcoming');
 
 GO
-
 -- Bảng nhà tài trợ
 CREATE TABLE Sponsorship (
     id INT PRIMARY KEY IDENTITY(1,1),
@@ -45,6 +44,17 @@ CREATE TABLE Register(
 	tournamentId INT FOREIGN KEY(tournamentId) REFERENCES Tournament(id)
 	constraint pk_r primary key(playerId,tournamentId)
 )
+GO
+INSERT INTO Register values
+(2,1),
+(3,1),
+(4,1),
+(5,1),
+(6,1),
+(7,1),
+(8,1),
+(9,1)
+
 GO
 -- Bảng Player (Người chơi)
 CREATE TABLE Player (
@@ -94,8 +104,8 @@ CREATE TABLE tblMatch (
     id INT PRIMARY KEY IDENTITY(1,1),
     tournament_id INT NOT NULL,
     round_id INT NOT NULL,
-    player1_id INT NOT NULL,
-    player2_id INT NOT NULL,
+    player1_id INT ,
+    player2_id INT ,
     player1_score INT NOT NULL DEFAULT 0,
     player2_score INT NOT NULL DEFAULT 0,
     winner_id INT NULL,
@@ -159,7 +169,7 @@ GO
 CREATE TABLE rack_statistic (
     rackId INT,
     player_id INT NOT NULL,
-    break_and_run INT DEFAULT 0,
+    break_and_run INT DEFAULT 0,--breakNRun thì thông số của đối thủ bằng 0 trừ fouls + tạo rack mới
     break_num INT DEFAULT 0,
     balls_potted INT DEFAULT 0,
     missed_pots INT DEFAULT 0,
@@ -254,7 +264,7 @@ VALUES
 (9, '9 Ball', 32000, 9),  -- Dương Quốc Hoàng - Cơ thủ Việt Nam  
 (10, '9 Ball', 30000, 10); -- Francisco Sanchez Ruiz - Đương kim số 1 thế giới 9 Ball  
 GO
-
+--queryyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
 CREATE FUNCTION Player_schedule(
 @tournamentName nvarchar(50),
 @playerName nvarchar(50) )
@@ -299,6 +309,246 @@ group by player.id ,player.first_name+player.last_name
 )
 --Thống kê tổng số tiền thưởng của mỗi người chơi trong một năm
 select * from dbo.total_player_price(2024,N'DươngQuốc Hoàng')
+
+--function lấy điểm của người trong trận đấu
+CREATE FUNCTION getScore(@playerId INT, @matchId INT)
+RETURNS INT
+AS
+BEGIN
+    DECLARE @score INT;
+    SELECT @score = 
+        CASE 
+            WHEN player1_id = @playerId THEN player1_score
+            WHEN player2_id = @playerId THEN player2_score
+            ELSE NULL
+        END
+    FROM tblMatch
+    WHERE id = @matchId;
+    RETURN @score;
+END;
+
+--triggerrrrrr
+--trigger kiểm tra thông tin của statistic
+create trigger trigger_rack_statistic
+on rack_statistic for update
+as
+begin
+
+--update khi có player break_end_run
+	if UPDATE(break_and_run)
+	begin
+		update Rack set winner_id=i.player_id
+		from inserted i
+		inner join Rack r on r.rackId=i.rackId
+	end
+--UPDATE potted ball khi update break_num
+	if UPDATE(break_num)
+	BEGIN
+		update rack_statistic set balls_potted=i.balls_potted+i.break_num
+		from inserted i
+		inner join Rack r on r.rackId=i.rackId
+	END
+
+	DECLARE @player2_balls_potted int;
+	select @player2_balls_potted =rs.balls_potted
+	from rack_statistic rs ,inserted i
+	where rs.player_id !=i.player_id
+
+	if exists(
+		select *
+		from inserted i
+			inner join Rack r on r.rackId=i.rackId
+		where @player2_balls_potted+i.balls_potted>9
+	)
+	begin
+		ROLLBACK TRANSACTION;
+		RAISERROR ('The number of balls potted by both player must under 9 .', 16, 1);
+	end
+	
+end
+
+
+--update score khi có người thắng 1 rack
+create trigger trigger_rack_winner
+on Rack for update
+as
+if UPDATE(winner_id)
+begin
+	DECLARE
+	@matchWinnerId INT,
+	@matchId INT, 
+	@winnerId INT, 
+	@firstTo INT,
+	@cur_winner_score INT, 
+	@prevRack INT;
+	--gán giá trị cho các biến
+	SELECT @matchId = match_id, @winnerId = i.winner_id, @prevRack = rack_num,@firstTo = first_to,@matchWinnerId=m.winner_id
+    FROM inserted i 
+	inner join tblMatch m on i.match_id=m.id;
+	--cho trường hợp insert
+	IF @winnerId IS NULL
+    RETURN;
+	--nếu match đã có người thắng thì không update nữa
+	IF @matchWinnerId IS NOT NULL
+	ROLLBACK TRANSACTION;
+	RAISERROR ('Match completed! Player %d has won.', 16, 1, @matchWinnerId);
+	RETURN;
+
+	-- Kiểm tra nếu người thắng đã đạt đủ số điểm `first_to`
+		SELECT @cur_winner_score = dbo.getScore(@winnerId, @matchId);
+		IF @cur_winner_score >= @firstTo
+        BEGIN
+            -- Nếu đạt first_to, cập nhật winner_id trong bảng tblMatch
+            UPDATE tblMatch
+            SET winner_id = @winnerId, status = 'Completed'
+            WHERE id = @matchId;
+            RAISERROR ('Match completed! Player %d has won.', 16, 1, @winnerId);     
+            RETURN; -- Kết thúc trigger
+        END
+	 -- Nếu chưa đạt first_to, tăng điểm cho người thắng
+        UPDATE tblMatch
+        SET 
+            player1_score = CASE WHEN player1_id = @winnerId THEN player1_score + 1 ELSE player1_score END,
+            player2_score = CASE WHEN player2_id = @winnerId THEN player2_score + 1 ELSE player2_score END
+        WHERE id = @matchId;
+
+        -- Kiểm tra lại điểm sau khi update
+        SELECT @cur_winner_score = dbo.getScore(@winnerId, @matchId);
+
+        -- Nếu người thắng đạt first_to sau khi tăng điểm, cập nhật winner_id của trận đấu
+        IF @cur_winner_score >= @firstTo
+        BEGIN
+            UPDATE tblMatch
+            SET winner_id = @winnerId, status = 'Completed'
+            WHERE id = @matchId;
+
+            RAISERROR ('Match completed! Player %d has won.', 16, 1, @winnerId);
+            RETURN;
+        END
+
+        -- Nếu chưa đạt first_to, tạo rack mới
+        EXEC SP_create_rack @matchId, @prevRack;
+
+end
+
+--trigger tạo trận mới khi winner_id duoc update
+create trigger trigger_match_winner
+on tblMatch for update
+as
+if update (winner_id)
+begin
+    DECLARE @matchId INT,@round NVARCHAR(50);
+  
+	SELECT @round=r.round_number,@matchId=i.id
+	FROM Round r inner join inserted i on 
+	r.id=i.round_id
+
+	
+	exec  SP_create_match @matchId,@round;
+end
+
+--procedure
+ --tạo một rack mới khi rack này kết thúc
+create proc SP_create_next_rack(@matchId int,@prevRack int)
+as
+begin 
+	 -- Tạo rack mới với rack_num + 1 từ prevRack
+    INSERT INTO Rack (rack_num, match_id, winner_id)
+    VALUES (@prevRack + 1, @matchId, NULL);
+end
+--tạo một trận mới()
+CREATE  PROCEDURE SP_create_match
+    @prevMatch INT,        -- Trận đấu đã hoàn thành
+    @prevRound NVARCHAR(50) -- Vòng đấu tiếp theo
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DECLARE @winnerId INT, @tournamentId INT, @roundNumber INT, @newMatchDate DATE, @matchId INT,@prevRoundId int;
+
+    -- Lấy thông tin từ trận trước
+    SELECT @winnerId = winner_id, @tournamentId = tournament_id,@prevRoundId=round_id
+    FROM tblMatch
+    WHERE id = @prevMatch;
+
+    -- Nếu trận trước chưa có winner thì không tạo trận mới
+    IF @winnerId IS NULL
+    BEGIN
+        RAISERROR ('Previous match does not have a winner.', 16, 1);
+        RETURN;
+    END
+	DECLARE  @nextRound NVARCHAR(50);
+    SET @nextRound= CASE 
+        WHEN @prevRound= 'Quarterfinals' THEN 'Semifinals' -- Nếu tứ kết thì lên bán kết
+        WHEN @prevRound= 'Semifinals' THEN 'Grand Final'-- Nếu bán kết thì lên chung kết
+        ELSE NULL
+	END;
+    IF @nextRound IS NULL
+	begin
+		RAISERROR ('This is the last round! %s.', 16, 1,@prevRound);
+		RETURN;
+	end
+
+    -- Lấy số round tương ứng với @nextRound
+    SELECT @roundNumber = r.id
+    FROM Round r
+    WHERE r.round_number= @nextRound and r.tournament_id=@tournamentId;
+
+    -- Tìm ngày đấu cuối cùng của vòng trước
+    SELECT @newMatchDate = MAX(match_date)
+    FROM tblMatch
+    WHERE round_id =@prevRoundId  AND tournament_id = @tournamentId;
+
+    -- Nếu không có trận nào ở vòng trước, đặt ngày thi đấu mới là hôm nay + 2 ngày
+    IF @newMatchDate IS NULL
+        SET @newMatchDate = DATEADD(DAY, 2, GETDATE());
+    ELSE
+        SET @newMatchDate = DATEADD(DAY, 2, @newMatchDate);
+
+    -- Tìm trận đấu có sẵn trong vòng tiếp theo
+    SELECT TOP 1 @matchId = id
+    FROM tblMatch
+    WHERE round_id = @roundNumber AND tournament_id = @tournamentId AND player2_id IS NULL
+    ORDER BY match_date ASC, id ASC;
+
+    IF @matchId IS NOT NULL
+    BEGIN
+        -- Nếu có trận đấu sẵn, gán player2_id là winner của trận trước
+        UPDATE tblMatch
+        SET player2_id = @winnerId
+        WHERE id = @matchId;
+    END
+    ELSE
+    BEGIN
+        -- Nếu không có trận nào trống, tạo trận mới với winner là player1_id
+        INSERT INTO tblMatch (round_id, tournament_id, player1_id, player2_id, match_date, status,first_to)
+        VALUES (@roundNumber, @tournamentId, @winnerId, NULL, @newMatchDate, 'Scheduled',3);
+    END
+END;
+
+GO
+--demo tạo add player mới vào tournament
+INSERT INTO Register values
+(1,2),
+(2,2),
+(3,2),
+(4,2),
+(5,2),
+(6,2),
+(7,2),
+(8,2)
+GO
+INSERT INTO Round (tournament_id, round_number)
+	VALUES
+    (2, 'Quarterfinals'),
+    (2, 'Semifinals'),
+    (2, 'Grand Final');
+
+SELECT * FROM ROUND where tournament_id=2
+GO
+
+
+
 
 
 
